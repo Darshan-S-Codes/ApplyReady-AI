@@ -1,6 +1,10 @@
 import mongoose from 'mongoose'
 
-const projectSchema = new mongoose.Schema({ name: String, description: String, technologies: [String], githubUrl: String, liveUrl: String }, { _id: true })
+const projectAttachmentSchema = new mongoose.Schema({
+  document: { type: mongoose.Schema.Types.ObjectId, ref: 'Document', required: true },
+  name: { type: String, required: true },
+}, { _id: false })
+const projectSchema = new mongoose.Schema({ name: String, description: String, technologies: [String], githubUrl: String, liveUrl: String, attachments: [projectAttachmentSchema] })
 const certificationSchema = new mongoose.Schema({ name: String, organization: String, date: String, url: String }, { _id: true })
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },

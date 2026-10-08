@@ -2,11 +2,13 @@ import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import User from '../models/User.js'
+import Document from '../models/Document.js'
 import requireAuth from '../middleware/auth.js'
+import requireDatabase from '../middleware/requireDatabase.js'
 
 const router = Router()
 const createToken = user => jwt.sign({ sub: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' })
-router.post('/register', async (req, res, next) => {
+router.post('/register', requireDatabase, async (req, res, next) => {
   try {
     const { name, email, password } = req.body
     if (!name?.trim() || !email?.trim() || !password || password.length < 8) return res.status(400).json({ message: 'Enter your name and email, and use a password with at least 8 characters.' })
@@ -16,7 +18,7 @@ router.post('/register', async (req, res, next) => {
     return res.status(201).json({ token: createToken(user), user: { id: user.id, name: user.name, email: user.email } })
   } catch (err) { next(err) }
 })
-router.post('/login', async (req, res, next) => {
+router.post('/login', requireDatabase, async (req, res, next) => {
   try {
     const { email, password } = req.body
     const user = await User.findOne({ email: email?.toLowerCase().trim() }).select('+passwordHash')
@@ -25,10 +27,25 @@ router.post('/login', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 router.post('/logout', (_req, res) => res.json({ message: 'Signed out.' }))
-router.get('/me', requireAuth, (req, res) => res.json({ user: req.user }))
-router.patch('/me', requireAuth, async (req, res, next) => {
+router.get('/me', requireDatabase, requireAuth, async (req, res, next) => {
+  try {
+    await req.user.populate('projects.attachments.document', 'originalName')
+    res.json({ user: req.user })
+  } catch (err) { next(err) }
+})
+router.patch('/me', requireDatabase, requireAuth, async (req, res, next) => {
   try {
     const allowed = ['name','phone','location','college','degree','branch','currentYear','graduationYear','cgpa','skills','projects','certifications','preferences']
+    if ('projects' in req.body) {
+      if (!Array.isArray(req.body.projects)) return res.status(400).json({ message: 'Projects must be provided as a list.' })
+      const attachmentIds = req.body.projects.flatMap(project => Array.isArray(project.attachments)
+        ? project.attachments.map(attachment => attachment.document)
+        : [])
+      const ownedDocuments = await Document.countDocuments({ owner: req.user.id, _id: { $in: attachmentIds } })
+      if (ownedDocuments !== new Set(attachmentIds.map(String)).size) {
+        return res.status(400).json({ message: 'Project attachments must be documents in your account.' })
+      }
+    }
     for (const field of allowed) if (field in req.body) req.user[field] = req.body[field]
     await req.user.save()
     res.json({ user: req.user })
